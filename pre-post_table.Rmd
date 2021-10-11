@@ -26,7 +26,6 @@ df <- haven::read_sav("pre_post_20-21.sav")
 ```
 
 
-
 ```{r}
 
 # restructure data to long for models
