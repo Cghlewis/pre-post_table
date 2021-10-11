@@ -1,0 +1,108 @@
+---
+title: "Pre-post results for prosocial scale"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE,
+                      message = FALSE,
+                      warning = FALSE)
+
+library(tidyverse)
+library(purrr)
+library(flextable)
+library(lfe)
+
+```
+
+<br>
+
+```{r}
+
+# read in data
+
+df <- haven::read_sav("pre_post_20-21.sav")
+
+```
+
+
+
+```{r}
+
+# restructure data to long for models
+
+tallPro <- df %>% 
+   purrr::set_names(tolower) %>%
+   mutate(pre_grade = labelled::to_factor(pre_grade)) %>%
+   select(teacherid, studentid, pre_school_name, pre_gender, pre_race,
+                          pre_grade, pre_school_type, pre_free_reduced_lunch,
+                          post_prosocial_behavior_sum,
+                          pre_prosocial_behavior_sum) %>%
+   pivot_longer(cols = c('pre_prosocial_behavior_sum', 
+                        'post_prosocial_behavior_sum'),values_to = 'prosocial')
+
+# create a time variable
+
+tallPro <- mutate(tallPro,
+                  time = case_when(
+                  name == 'post_prosocial_behavior_sum' ~ 1,
+                  TRUE ~ 0))
+
+```
+
+
+```{r}
+
+# p-value for grade
+
+ppro <- tallPro %>%
+  split(.$pre_grade) %>%
+  map(~ felm(prosocial ~ time | studentid | 0 | studentid, data = .)) %>%
+  map_dfr(~ broom::tidy(.), .id = 'pre_grade') %>%
+  select(pre_grade,p=p.value)
+
+
+# pre-post restults by grade table
+
+df %>%
+  purrr::set_names(tolower) %>%
+  group_by(pre_grade) %>%
+  dplyr::mutate(pre_grade=labelled::to_factor(pre_grade)) %>%
+  mutate(pre_grade = fct_relevel(pre_grade, "Pre-K")) %>%
+  summarise(
+    N = n(),
+    preM = round(mean(pre_prosocial_behavior_sum), digits=1),
+    preSD = round(sd(pre_prosocial_behavior_sum), digits=1),
+    postM = round(mean(post_prosocial_behavior_sum), digits=1),
+    postSD = round(sd(post_prosocial_behavior_sum), digits=1),
+    diff = round(postM - preM,digits=2),
+    Effect = round(diff/postSD, digits=2)) %>%
+  mutate(diff=format(diff, nsmall=1), 
+         Effect = format(Effect, nsmall=2)) %>%
+  left_join(ppro, by="pre_grade") %>%
+  mutate(diff = as.character(case_when(
+          p<.001 ~ paste0(diff,"***"),
+          p<.01 ~ paste0(diff,"**"),
+          p<.05 ~ paste0(diff,"*"),
+          TRUE ~ diff))) %>%
+  select(-p) %>%
+  flextable() %>%
+    width(width = 0.85) %>%
+    width(j = ~ pre_grade, width = 1) %>%
+    width(j = ~ N, width = .70) %>%
+    width(j = ~ preM + preSD + postM + postSD, width = .70) %>%
+    align_text_col(align = "center") %>%
+    align(align = "center", part = "all") %>%
+    add_footer_lines(values = " * p<.05; ** p<.01; *** p<.001", top = FALSE) %>%
+    add_header(pre_grade = "",
+      preM = "Pretest", preSD = "Pretest",
+      postM = "Posttest", postSD = "Posttest", top = TRUE ) %>%
+      set_header_labels(pre_grade = "(n=908)", 
+      preM = "M", preSD = "SD",
+      postM = "M", postSD = "SD", diff="Difference",
+      Effect = "Effect Size") %>%
+    add_header_lines(values = "Table 1. Prosocial Behavior by Grade Level", top = TRUE)
+
+
+```
+
